@@ -2,9 +2,9 @@ module.exports = {
   platform: "github",
   autodiscover: true,
   hostRules: [
-    { matchHost: "https://repo.jopga.me/releases" },
     {
-      matchHost: "https://repo.jopga.me/private",
+      matchHost: "repo.jopga.me",
+      hostType: "maven",
       username: process.env.RENOVATE_JOPGA_USER,
       password: process.env.RENOVATE_JOPGA_PASSWORD,
     },
