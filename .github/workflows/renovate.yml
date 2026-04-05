@@ -27,5 +27,5 @@ jobs:
           configurationFile: config.js
           token: "${{ steps.get_token.outputs.token }}"
         env:
-          JOPGA_USER: ${{ secrets.JOPGA_USER }}
-          JOPGA_PASSWORD: ${{ secrets.JOPGA_PASSWORD }}
+          RENOVATE_JOPGA_USER: ${{ secrets.JOPGA_USER }}
+          RENOVATE_JOPGA_PASSWORD: ${{ secrets.JOPGA_PASSWORD }}
