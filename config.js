@@ -26,6 +26,7 @@ module.exports = {
   ],
   labels: ["dependencies"],
   commitMessagePrefix: "build(deps): ",
+  allowedUnsafeExecutions: ["gradlew"],
   onboarding: false,
   requireConfig: "optional",
 };
