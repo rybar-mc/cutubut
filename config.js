@@ -19,7 +19,7 @@ module.exports = {
         "https://repo.jopga.me/private",
       ],
       addLabels: ["idp"],
-      reviewers: ["team:rybar-mc/maintainers"],
+      reviewers: ["team:maintainers"],
       automerge: true,
       platformAutomerge: false,
     },
