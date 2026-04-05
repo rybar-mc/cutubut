@@ -18,10 +18,10 @@ jobs:
           private-key: ${{ secrets.PRIVATE_KEY }}
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6.0.2
 
       - name: Self-hosted Renovate
-        uses: renovatebot/github-action@v40
+        uses: renovatebot/github-action@v46.1.7
         with:
           configurationFile: config.js
           token: "${{ steps.get_token.outputs.token }}"
