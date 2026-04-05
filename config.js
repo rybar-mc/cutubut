@@ -1,6 +1,12 @@
 module.exports = {
   platform: "github",
   autodiscover: true,
+  autodiscoverFilter: [
+    "!rybar-mc/hydro",
+    "!rybar-mc/grim",
+    "!rybar-mc/luckperms",
+    "!rybar-mc/spark",
+  ],
   hostRules: [
     {
       matchHost: "repo.jopga.me",
