@@ -14,7 +14,10 @@ module.exports = {
       description:
         "Force internal packages to resolve only from our private repository",
       matchPackagePatterns: ["org.rybar.*"],
-      registryUrls: ["https://repo.jopga.me/private"],
+      registryUrls: [
+        "https://repo.jopga.me/releases",
+        "https://repo.jopga.me/private",
+      ],
       addLabels: ["idp"],
       reviewers: ["team:rybar-mc/maintainers"],
       automerge: true,
