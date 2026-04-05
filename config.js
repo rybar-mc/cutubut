@@ -21,7 +21,7 @@ module.exports = {
       addLabels: ["idp"],
       reviewers: ["team:rybar-mc/maintainers"],
       automerge: true,
-      platformAutomerge: true,
+      platformAutomerge: false,
     },
   ],
   labels: ["dependencies"],
