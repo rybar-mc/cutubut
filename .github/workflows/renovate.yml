@@ -1,0 +1,30 @@
+name: Renovate Dependencies
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    - cron: "0 3 * * *"
+
+jobs:
+  renovate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate a token
+        id: get_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.PRIVATE_KEY }}
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Self-hosted Renovate
+        uses: renovatebot/github-action@v40
+        with:
+          configurationFile: config.js
+          token: "${{ steps.get_token.outputs.token }}"
+        env:
+          JOPGA_USER: ${{ secrets.JOPGA_USER }}
+          JOPGA_PASSWORD: ${{ secrets.JOPGA_PASSWORD }}
