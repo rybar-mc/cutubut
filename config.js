@@ -19,7 +19,7 @@ module.exports = {
         "https://repo.jopga.me/private",
       ],
       addLabels: ["idp"],
-      reviewers: ["xhyrom", "NoGodHenry", "team:maintainers"],
+      reviewers: ["xhyrom", "NoGodHenry"],
       automerge: true,
       platformAutomerge: false,
     },
