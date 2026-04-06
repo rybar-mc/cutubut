@@ -25,7 +25,7 @@ module.exports = {
       addLabels: ["idp", "automerge"],
     },
     {
-      matchPackagePatterns: ["org.jetbrains:annotations"],
+      matchPackagePatterns: ["org.jetbrains:annotations", "org.projectlombok"],
       addLabels: ["automerge"],
     },
     {
