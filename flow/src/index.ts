@@ -120,7 +120,9 @@ async function processPullRequest(octokit: any, owner: string, repo: string, prN
 
 			await attemptMerge(octokit, owner, repo, prNumber, prData.head.ref, prData.user?.login);
 		} else if (conclusion === 'failure') {
-			await markAsFailed(octokit, owner, repo, prNumber, labels, prData.user?.login, false);
+			await markAsFailed(octokit, owner, repo, prNumber, labels, prData.user?.login, 'check_failure');
+		} else if (conclusion === 'no_checks') {
+			await markAsFailed(octokit, owner, repo, prNumber, labels, prData.user?.login, 'no_checks');
 		} else {
 			console.log(`pr #${prNumber} checks are still '${conclusion}'. waiting for completion.`);
 		}
@@ -129,9 +131,9 @@ async function processPullRequest(octokit: any, owner: string, repo: string, prN
 	}
 }
 
-function getOverallConclusion(checkRuns: any[]): 'success' | 'failure' | 'pending' {
+function getOverallConclusion(checkRuns: any[]): 'success' | 'failure' | 'pending' | 'no_checks' {
 	if (checkRuns.length === 0) {
-		return 'failure'; // no checks - want manual approval
+		return 'no_checks'; // no checks - want manual approval, but not marked as blocked
 	}
 
 	const isFailure = checkRuns.some((run) => ['failure', 'timed_out', 'cancelled', 'action_required'].includes(run.conclusion));
@@ -165,7 +167,7 @@ async function attemptMerge(octokit: any, owner: string, repo: string, prNumber:
 		const { data: prData } = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
 		const labels = prData.labels.map((l: any) => l.name);
 
-		await markAsFailed(octokit, owner, repo, prNumber, labels, authorLogin, true);
+		await markAsFailed(octokit, owner, repo, prNumber, labels, authorLogin, 'merge_failure');
 	}
 }
 
@@ -176,16 +178,17 @@ async function markAsFailed(
 	prNumber: number,
 	currentLabels: string[],
 	authorLogin?: string,
-	isMergeFailure: boolean = false,
+	failureReason: 'check_failure' | 'merge_failure' | 'no_checks' = 'check_failure',
 ) {
 	const labelsToAdd = [];
 
-	if (!currentLabels.includes('blocked')) {
-		labelsToAdd.push('blocked');
-	}
-
-	if (!isMergeFailure && !currentLabels.includes('wfr')) {
-		labelsToAdd.push('wfr');
+	if (failureReason === 'merge_failure') {
+		if (!currentLabels.includes('blocked')) labelsToAdd.push('blocked');
+	} else if (failureReason === 'check_failure') {
+		if (!currentLabels.includes('blocked')) labelsToAdd.push('blocked');
+		if (!currentLabels.includes('wfr')) labelsToAdd.push('wfr');
+	} else if (failureReason === 'no_checks') {
+		if (!currentLabels.includes('wfr')) labelsToAdd.push('wfr');
 	}
 
 	if (labelsToAdd.length > 0) {
