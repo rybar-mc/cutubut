@@ -21,6 +21,7 @@ export default {
 		});
 
 		app.webhooks.on('check_suite.completed', handleCheckSuiteCompleted);
+		app.webhooks.on('pull_request.labeled', handlePullRequestLabeled);
 
 		const signature = request.headers.get('x-hub-signature-256') || '';
 		const id = request.headers.get('x-github-delivery') || '';
@@ -34,7 +35,6 @@ export default {
 				payload: body,
 				signature,
 			});
-
 			return new Response('webhook successfully processed', { status: 200 });
 		} catch (error: any) {
 			console.error('webhook processing failed:', error);
@@ -47,14 +47,25 @@ async function handleCheckSuiteCompleted({ octokit, payload }: any) {
 	const { check_suite, repository } = payload;
 	const owner = repository.owner.login;
 	const repo = repository.name;
-	const conclusion = check_suite.conclusion;
 
 	for (const pr of check_suite.pull_requests) {
-		await processPullRequest(octokit, owner, repo, pr.number, conclusion);
+		await processPullRequest(octokit, owner, repo, pr.number);
 	}
 }
 
-async function processPullRequest(octokit: any, owner: string, repo: string, prNumber: number, conclusion: string) {
+async function handlePullRequestLabeled({ octokit, payload }: any) {
+	if (payload.label?.name !== 'automerge') {
+		return;
+	}
+
+	const owner = payload.repository.owner.login;
+	const repo = payload.repository.name;
+	const prNumber = payload.pull_request.number;
+
+	await processPullRequest(octokit, owner, repo, prNumber);
+}
+
+async function processPullRequest(octokit: any, owner: string, repo: string, prNumber: number) {
 	try {
 		const { data: prData } = await octokit.rest.pulls.get({
 			owner,
@@ -65,23 +76,46 @@ async function processPullRequest(octokit: any, owner: string, repo: string, prN
 		const hasAutomerge = prData.labels.some((label: any) => label.name === 'automerge');
 		if (!hasAutomerge) return;
 
+		const { data: checks } = await octokit.rest.checks.listForRef({
+			owner,
+			repo,
+			ref: prData.head.sha,
+		});
+
+		const conclusion = getOverallConclusion(checks.check_runs);
+
 		if (conclusion === 'success') {
-			await mergeAndCleanupPullRequest(octokit, owner, repo, prNumber, prData.title, prData.head.ref);
-		} else if (['failure', 'timed_out', 'cancelled'].includes(conclusion)) {
+			await mergeAndCleanupPullRequest(octokit, owner, repo, prNumber, prData.head.ref);
+		} else if (conclusion === 'failure') {
 			await requestReviewersOnFailure(octokit, owner, repo, prNumber, prData.user?.login);
+		} else {
+			console.log(`pr #${prNumber} checks are still '${conclusion}'. waiting for completion.`);
 		}
 	} catch (error: any) {
 		console.error(`error processing pr #${prNumber}:`, error.message);
 	}
 }
 
-async function mergeAndCleanupPullRequest(octokit: any, owner: string, repo: string, prNumber: number, title: string, branchName: string) {
+function getOverallConclusion(checkRuns: any[]): 'success' | 'failure' | 'pending' {
+	if (checkRuns.length === 0) {
+		return 'failure'; // no checks - want manual approval
+	}
+
+	const isFailure = checkRuns.some((run) => ['failure', 'timed_out', 'cancelled', 'action_required'].includes(run.conclusion));
+	if (isFailure) return 'failure';
+
+	const isPending = checkRuns.some((run) => run.status !== 'completed');
+	if (isPending) return 'pending';
+
+	return 'success';
+}
+
+async function mergeAndCleanupPullRequest(octokit: any, owner: string, repo: string, prNumber: number, branchName: string) {
 	await octokit.rest.pulls.merge({
 		owner,
 		repo,
 		pull_number: prNumber,
 		merge_method: 'squash',
-		commit_title: title,
 	});
 	console.log(`successfully merged pr #${prNumber} in ${owner}/${repo}`);
 
@@ -94,12 +128,10 @@ async function mergeAndCleanupPullRequest(octokit: any, owner: string, repo: str
 }
 
 async function requestReviewersOnFailure(octokit: any, owner: string, repo: string, prNumber: number, authorLogin?: string) {
-	const reviewersToRequest = ['xhyrom', 'nogodhenry'].filter((user) => user !== authorLogin);
+	const reviewersToRequest = ['nogodhenry', 'xhyrom'].filter((user) => user !== authorLogin);
 
 	if (reviewersToRequest.length === 0) {
-		console.log(
-			`checks failed for pr #${prNumber} in ${owner}/${repo}, but authors cannot review their own pr. skipped requesting reviewers.`,
-		);
+		console.log(`checks failed for pr #${prNumber}, but authors cannot review their own pr. skipped requesting reviewers.`);
 		return;
 	}
 
@@ -110,5 +142,5 @@ async function requestReviewersOnFailure(octokit: any, owner: string, repo: stri
 		reviewers: reviewersToRequest,
 	});
 
-	console.log(`requested review from ${reviewersToRequest.join(', ')} for failed pr #${prNumber} in ${owner}/${repo}`);
+	console.log(`requested review from ${reviewersToRequest.join(', ')} for failed pr #${prNumber}`);
 }
