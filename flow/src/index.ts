@@ -198,7 +198,7 @@ async function markAsFailed(
 		console.log(`added labels [${labelsToAdd.join(', ')}] to pr #${prNumber}`);
 	}
 
-	const reviewersToRequest = ['nogodhenry', 'xhyrom'].filter((user) => user !== authorLogin);
+	const reviewersToRequest = ['xhyrom', 'nogodhenry'].filter((user) => user !== authorLogin);
 
 	if (reviewersToRequest.length === 0) {
 		console.log(`checks/merge failed for pr #${prNumber}, but authors cannot review their own pr. skipped requesting reviewers.`);
