@@ -33,7 +33,7 @@ module.exports = {
   ],
   labels: ["dependencies"],
   commitMessagePrefix: "build(deps): ",
-  allowedUnsafeExecutions: ["gradlew"],
+  allowedUnsafeExecutions: ["gradlew", "gradleWrapper"],
   onboarding: false,
   requireConfig: "optional",
 };
