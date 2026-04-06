@@ -28,6 +28,7 @@ module.exports = {
       reviewers: ["xhyrom", "NoGodHenry"],
       automerge: true,
       platformAutomerge: false,
+      automergeType: "pr"
     },
   ],
   labels: ["dependencies"],
