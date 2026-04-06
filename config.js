@@ -17,18 +17,26 @@ module.exports = {
   ],
   packageRules: [
     {
-      description:
-        "Force internal packages to resolve only from our private repository",
       matchPackagePatterns: ["org.rybar.*"],
       registryUrls: [
         "https://repo.jopga.me/releases",
         "https://repo.jopga.me/private",
       ],
-      addLabels: ["idp"],
-      reviewers: ["xhyrom", "NoGodHenry"],
-      automerge: true,
-      platformAutomerge: false,
-      automergeType: "pr"
+      addLabels: ["idp", "automerge"],
+    },
+    {
+      matchPackagePatterns: ["org.jetbrains:annotations"],
+      addLabels: ["automerge"],
+    },
+    {
+      description: "do not assign reviewers to automerge or internal packages",
+      matchLabels: ["idp", "automerge"],
+      reviewers: [],
+    },
+    {
+      description: "assign default reviewers to all other dependencies",
+      matchAll: true,
+      reviewers: ["xhyrom", "nogodhenry"],
     },
   ],
   prNotPendingHours: 1,
