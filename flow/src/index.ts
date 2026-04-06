@@ -22,6 +22,7 @@ export default {
 
 		app.webhooks.on('check_suite.completed', handleCheckSuiteCompleted);
 		app.webhooks.on('pull_request.labeled', handlePullRequestLabeled);
+		app.webhooks.on('pull_request_review.submitted', handlePullRequestReviewSubmitted);
 
 		const signature = request.headers.get('x-hub-signature-256') || '';
 		const id = request.headers.get('x-github-delivery') || '';
@@ -65,7 +66,19 @@ async function handlePullRequestLabeled({ octokit, payload }: any) {
 	await processPullRequest(octokit, owner, repo, prNumber);
 }
 
-async function processPullRequest(octokit: any, owner: string, repo: string, prNumber: number) {
+async function handlePullRequestReviewSubmitted({ octokit, payload }: any) {
+	if (payload.review.state !== 'approved') {
+		return;
+	}
+
+	const owner = payload.repository.owner.login;
+	const repo = payload.repository.name;
+	const prNumber = payload.pull_request.number;
+
+	await processPullRequest(octokit, owner, repo, prNumber, { isApprovedOverride: true });
+}
+
+async function processPullRequest(octokit: any, owner: string, repo: string, prNumber: number, options = { isApprovedOverride: false }) {
 	try {
 		const { data: prData } = await octokit.rest.pulls.get({
 			owner,
@@ -73,8 +86,24 @@ async function processPullRequest(octokit: any, owner: string, repo: string, prN
 			pull_number: prNumber,
 		});
 
-		const hasAutomerge = prData.labels.some((label: any) => label.name === 'automerge');
+		const labels = prData.labels.map((label: any) => label.name);
+		const hasAutomerge = labels.includes('automerge');
+		const hasBlocked = labels.includes('blocked');
+		const hasWfr = labels.includes('wfr');
+
 		if (!hasAutomerge) return;
+
+		if (options.isApprovedOverride) {
+			console.log(`pr #${prNumber} was approved. overriding blocks and attempting merge.`);
+			await removeLabels(octokit, owner, repo, prNumber, labels, ['blocked', 'wfr']);
+			await attemptMerge(octokit, owner, repo, prNumber, prData.head.ref, prData.user?.login);
+			return;
+		}
+
+		if (hasWfr) {
+			console.log(`pr #${prNumber} has 'wfr' label. skipping auto-merge until reviewed.`);
+			return;
+		}
 
 		const { data: checks } = await octokit.rest.checks.listForRef({
 			owner,
@@ -85,9 +114,13 @@ async function processPullRequest(octokit: any, owner: string, repo: string, prN
 		const conclusion = getOverallConclusion(checks.check_runs);
 
 		if (conclusion === 'success') {
-			await mergeAndCleanupPullRequest(octokit, owner, repo, prNumber, prData.head.ref);
+			if (hasBlocked) {
+				await removeLabels(octokit, owner, repo, prNumber, labels, ['blocked']);
+			}
+
+			await attemptMerge(octokit, owner, repo, prNumber, prData.head.ref, prData.user?.login);
 		} else if (conclusion === 'failure') {
-			await requestReviewersOnFailure(octokit, owner, repo, prNumber, prData.user?.login);
+			await markAsFailed(octokit, owner, repo, prNumber, labels, prData.user?.login, false);
 		} else {
 			console.log(`pr #${prNumber} checks are still '${conclusion}'. waiting for completion.`);
 		}
@@ -110,37 +143,102 @@ function getOverallConclusion(checkRuns: any[]): 'success' | 'failure' | 'pendin
 	return 'success';
 }
 
-async function mergeAndCleanupPullRequest(octokit: any, owner: string, repo: string, prNumber: number, branchName: string) {
-	await octokit.rest.pulls.merge({
-		owner,
-		repo,
-		pull_number: prNumber,
-		merge_method: 'squash',
-	});
-	console.log(`successfully merged pr #${prNumber} in ${owner}/${repo}`);
+async function attemptMerge(octokit: any, owner: string, repo: string, prNumber: number, branchName: string, authorLogin: string) {
+	try {
+		await octokit.rest.pulls.merge({
+			owner,
+			repo,
+			pull_number: prNumber,
+			merge_method: 'squash',
+		});
+		console.log(`successfully merged pr #${prNumber} in ${owner}/${repo}`);
 
-	await octokit.rest.git.deleteRef({
-		owner,
-		repo,
-		ref: `heads/${branchName}`,
-	});
-	console.log(`successfully deleted branch '${branchName}' for pr #${prNumber}`);
+		await octokit.rest.git.deleteRef({
+			owner,
+			repo,
+			ref: `heads/${branchName}`,
+		});
+		console.log(`successfully deleted branch '${branchName}' for pr #${prNumber}`);
+	} catch (error: any) {
+		console.error(`failed to merge pr #${prNumber} (possibly conflicts or branch protection):`, error.message);
+
+		const { data: prData } = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
+		const labels = prData.labels.map((l: any) => l.name);
+
+		await markAsFailed(octokit, owner, repo, prNumber, labels, authorLogin, true);
+	}
 }
 
-async function requestReviewersOnFailure(octokit: any, owner: string, repo: string, prNumber: number, authorLogin?: string) {
+async function markAsFailed(
+	octokit: any,
+	owner: string,
+	repo: string,
+	prNumber: number,
+	currentLabels: string[],
+	authorLogin?: string,
+	isMergeFailure: boolean = false,
+) {
+	const labelsToAdd = [];
+
+	if (!currentLabels.includes('blocked')) {
+		labelsToAdd.push('blocked');
+	}
+
+	if (!isMergeFailure && !currentLabels.includes('wfr')) {
+		labelsToAdd.push('wfr');
+	}
+
+	if (labelsToAdd.length > 0) {
+		await octokit.rest.issues.addLabels({
+			owner,
+			repo,
+			issue_number: prNumber,
+			labels: labelsToAdd,
+		});
+		console.log(`added labels [${labelsToAdd.join(', ')}] to pr #${prNumber}`);
+	}
+
 	const reviewersToRequest = ['nogodhenry', 'xhyrom'].filter((user) => user !== authorLogin);
 
 	if (reviewersToRequest.length === 0) {
-		console.log(`checks failed for pr #${prNumber}, but authors cannot review their own pr. skipped requesting reviewers.`);
+		console.log(`checks/merge failed for pr #${prNumber}, but authors cannot review their own pr. skipped requesting reviewers.`);
 		return;
 	}
 
-	await octokit.rest.pulls.requestReviewers({
-		owner,
-		repo,
-		pull_number: prNumber,
-		reviewers: reviewersToRequest,
-	});
+	try {
+		await octokit.rest.pulls.requestReviewers({
+			owner,
+			repo,
+			pull_number: prNumber,
+			reviewers: reviewersToRequest,
+		});
+		console.log(`requested review from ${reviewersToRequest.join(', ')} for failed pr #${prNumber}`);
+	} catch (error: any) {
+		console.error(`failed to request reviewers for pr #${prNumber}:`, error.message);
+	}
+}
 
-	console.log(`requested review from ${reviewersToRequest.join(', ')} for failed pr #${prNumber}`);
+async function removeLabels(
+	octokit: any,
+	owner: string,
+	repo: string,
+	prNumber: number,
+	currentLabels: string[],
+	labelsToRemove: string[],
+) {
+	for (const label of labelsToRemove) {
+		if (currentLabels.includes(label)) {
+			try {
+				await octokit.rest.issues.removeLabel({
+					owner,
+					repo,
+					issue_number: prNumber,
+					name: label,
+				});
+				console.log(`removed label '${label}' from pr #${prNumber}`);
+			} catch (error: any) {
+				console.error(`failed to remove label '${label}' from pr #${prNumber}:`, error.message);
+			}
+		}
+	}
 }
