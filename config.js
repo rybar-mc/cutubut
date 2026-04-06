@@ -31,6 +31,7 @@ module.exports = {
       automergeType: "pr"
     },
   ],
+  prNotPendingHours: 1,
   labels: ["dependencies"],
   commitMessagePrefix: "build(deps): ",
   allowedUnsafeExecutions: ["gradlew", "gradleWrapper"],
